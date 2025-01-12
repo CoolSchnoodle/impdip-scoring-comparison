@@ -171,7 +171,7 @@ impl Score for Current {
         }).count();
         let highest_non_impunity_vscc = prev_vscc;
         let scores = vsccs.into_iter().map(|v|
-            v.max(0.0)
+            100.0 * v.max(0.0)
                 + if v > highest_non_impunity_vscc { 500.0 / impunity_size as f32 } else { 0.0 }
                 + if v > -1.0 { 15.0 } else { 0.0 }
         ).collect::<Vec<f32>>();
@@ -220,8 +220,8 @@ fn main() {
             .try_into().unwrap()
         ).collect();
     let current = Current;
-    let proposed_1_5 = Proposed(|v| v.powf(1.5));
-    let proposed_2_0 = Proposed(|v| v.powi(2));
+    let proposed_1_5 = Proposed(|v| (v * 100.0).powf(1.5));
+    let proposed_2_0 = Proposed(|v| (v * 100.0).powi(2));
     a2_data.into_iter().enumerate().for_each(|(i, sc_counts)| {
         let vsccs = sc_counts.into_iter()
             .enumerate()
@@ -233,7 +233,6 @@ fn main() {
         let current_rating_change = scores_to_proportions(current.score(vsccs))
             .into_iter()
             .map(|p| p * RATING_POOL_PER_GAME - 105.0);
-        assert!(current.score(vsccs).into_iter().all(|v| v >= 0.0));
         let proposed_1_5_rating_change = scores_to_proportions(proposed_1_5.score(vsccs))
             .into_iter()
             .map(|p| p * RATING_POOL_PER_GAME - 105.0);
