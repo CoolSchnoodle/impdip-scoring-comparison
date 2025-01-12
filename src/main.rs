@@ -133,7 +133,7 @@ impl Nation {
             -(1.0 - (sc_count as f32 / self.starting_sc_count() as f32))
         } else {
             (sc_count - self.starting_sc_count()) as f32
-                / starting_scs_to_vscc(self.starting_sc_count()) as f32
+                / (starting_scs_to_vscc(self.starting_sc_count()) - self.starting_sc_count()) as f32
         }
     }
 }
@@ -169,10 +169,10 @@ impl Score for Current {
             prev_vscc = *v;
             impunities
         }).count();
-        let lowest_impunity_vscc = prev_vscc;
+        let highest_non_impunity_vscc = prev_vscc;
         let scores = vsccs.into_iter().map(|v|
-            if v > 0.0 { v } else { 0.0 }
-                + if v >= lowest_impunity_vscc { 500.0 / impunity_size as f32 } else { 0.0 }
+            v.max(0.0)
+                + if v > highest_non_impunity_vscc { 500.0 / impunity_size as f32 } else { 0.0 }
                 + if v > -1.0 { 15.0 } else { 0.0 }
         ).collect::<Vec<f32>>();
         scores.try_into().unwrap()
@@ -188,24 +188,66 @@ impl<F: Fn(f32) -> f32> Score for Proposed<F> {
             v
         };
         let mut prev_vscc: f32 = sorted_vsccs[0];
-        let impunity_size = sorted_vsccs.into_iter().take_while(|v| {
+        let impunity_size = sorted_vsccs.iter().take_while(|&v| {
             let impunities = (prev_vscc - v) <= 0.25;
             prev_vscc = *v;
             impunities
         }).count();
-        let lowest_impunity_vscc = prev_vscc;
-        let total_avscc: f32 = vsccs.into_iter().map(&self.0).sum();
+        let highest_non_impunity_vscc = prev_vscc;
+        let total_avscc: f32 = vsccs.into_iter().map(|v| if v > 0.0 { (&self.0)(v) } else { 0.0 }).sum();
         let scores = vsccs.into_iter().map(|v|
-            if v > 0.0 { 1000.0 * v / total_avscc } else { 0.0 }
-                + if v >= lowest_impunity_vscc { 300.0 / impunity_size as f32 } else { 0.0 }
+            if v > 0.0 { 1000.0 * (&self.0)(v) / total_avscc } else { 0.0 }
+                + if v > highest_non_impunity_vscc { 300.0 / impunity_size as f32 } else { 0.0 }
                 + if v > -1.0 { 15.0 } else { 0.0 }
         ).collect::<Vec<f32>>();
         scores.try_into().unwrap()
     }
 }
 
+fn scores_to_proportions(scores: [f32; 25]) -> [f32; 25] {
+    let score_sum: f32 = scores.into_iter().sum();
+    scores.into_iter().map(|s| s / score_sum).collect::<Vec<f32>>().try_into().unwrap()
+}
+
+const RATING_POOL_PER_GAME: f32 = 2625.0;
+
 fn main() {
+    let a2_data: Vec<[usize; 25]> = include_str!("../a2.txt")
+        .split('\n')
+        .map(|s| s.split('\t')
+            .map(|s| s.parse().unwrap())
+            .collect::<Vec<_>>()
+            .try_into().unwrap()
+        ).collect();
     let current = Current;
     let proposed_1_5 = Proposed(|v| v.powf(1.5));
     let proposed_2_0 = Proposed(|v| v.powi(2));
+    a2_data.into_iter().enumerate().for_each(|(i, sc_counts)| {
+        let vsccs = sc_counts.into_iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let n: Nation = (i as u8).try_into().unwrap();
+                n.vscc_percent(s)
+            }).collect::<Vec<_>>().try_into().unwrap();
+        println!("\nA2{}:", (b'A' + i as u8) as char);
+        let current_rating_change = scores_to_proportions(current.score(vsccs))
+            .into_iter()
+            .map(|p| p * RATING_POOL_PER_GAME - 105.0);
+        assert!(current.score(vsccs).into_iter().all(|v| v >= 0.0));
+        let proposed_1_5_rating_change = scores_to_proportions(proposed_1_5.score(vsccs))
+            .into_iter()
+            .map(|p| p * RATING_POOL_PER_GAME - 105.0);
+        let proposed_2_0_rating_change = scores_to_proportions(proposed_2_0.score(vsccs))
+            .into_iter()
+            .map(|p| p * RATING_POOL_PER_GAME - 105.0);
+        itertools::izip!(current_rating_change, proposed_1_5_rating_change, proposed_2_0_rating_change)
+            .enumerate()
+            .for_each(|(i, (c, p_1_5, p_2_0))| {
+                println!("{:<16}{:.0}\t{:.0}\t{:.0}",
+                         Nation::try_from(i as u8).unwrap().to_string(),
+                         c,
+                         p_1_5,
+                         p_2_0);
+            })
+    })
 }
